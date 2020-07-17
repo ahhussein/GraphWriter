@@ -67,9 +67,9 @@ class model(nn.Module):
       planlogits = None
 
 
-    # Glob Removes gradient backward path
     # B x hz
-    cx = torch.tensor(hx)
+    cx = hx.clone().detach().requires_grad_(True)
+
     #print(hx.size(),mask.size(),keys.size())
     a = torch.zeros_like(hx) #self.attn(hx.unsqueeze(1),keys,mask=mask).squeeze(1)
     if self.args.title:

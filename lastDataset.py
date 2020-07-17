@@ -109,7 +109,10 @@ class dataset:
     self.ENT.is_target = False
 
     self.fields=[("src",self.INP),("ent",self.ENT),("nerd",self.NERD),("rel",self.REL),("out",self.OUTP),("sorder",self.SORDER)]
-    train = data.TabularDataset(path=args.path, format='tsv',fields=self.fields)
+    if args.eval:
+      train = data.TabularDataset(path=args.datadir+args.traindata, format='tsv',fields=self.fields)
+    else:
+      train = data.TabularDataset(path=args.path, format='tsv',fields=self.fields)
 
     print('building vocab')
 
@@ -145,7 +148,10 @@ class dataset:
       relvocab = self.REL.special + rvocab
     self.REL.itos = relvocab
 
-    self.ENT.itos,self.ENT.stoi = self.build_ent_vocab(args.path)
+    if args.eval:
+      self.ENT.itos,self.ENT.stoi = self.build_ent_vocab(args.datadir+args.traindata)
+    else:
+      self.ENT.itos,self.ENT.stoi = self.build_ent_vocab(args.path)
 
 
     print('done')
