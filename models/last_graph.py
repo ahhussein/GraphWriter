@@ -39,6 +39,7 @@ class graph_encode(nn.Module):
     if args.model == "gat":
       self.gat = nn.ModuleList([MultiHeadAttention(args.hsz,args.hsz,args.hsz,h=4,dropout_p=args.drop) for _ in range(args.prop)])
     else:
+      # Prop holds the number of layers
       self.gat = nn.ModuleList([Block(args) for _ in range(args.prop)])
     self.prop = args.prop
     self.sparse = args.sparse
@@ -57,14 +58,28 @@ class graph_encode(nn.Module):
     return torch.cat([tensor, tensor.new(length - tensor.size(0), *tensor.size()[1:]).fill_(0)])
 
   def forward(self,adjs,rels,ents):
+    # elens is how many entities in one sample (represented as multiple vectors, one vector per entity)
+    # since all samples are cat together as rows
+
+    # vents is matrix of size (32 (batch size) x 15 (max entities in one sample give or take and padding is possible) X 500 (hiddensize)
+
     vents,entlens = ents
+    # dont backprop into embeddings
     if self.args.entdetach:
       vents = torch.tensor(vents,requires_grad=False)
+
+    # List of 2d tensors. Each tensor is of same # cols but not same number of rows
     vrels = [self.renc(x) for x in rels]
     glob = []
     graphs = []
     for i,adj in enumerate(adjs):
+      # PRocess sample by sample
+      #  num of entities in a sample + num of relations in a sample X hs
+      # DISCARD PADDING
+      # NUM-NODES + RELS * hz
       vgraph = torch.cat((vents[i][:entlens[i]],vrels[i]),0)
+
+      # nodes in a graph
       N = vgraph.size(0)
       if self.sparse:
         lens = [len(x) for x in adj]
@@ -83,19 +98,31 @@ class graph_encode(nn.Module):
           #print(ngraph.size(),vgraph.size(),mask.size())
           vgraph = self.gat[j](vgraph.unsqueeze(1),ngraph,mask)
         else:
+          # Repeating N number of times bcause attention is n^2
           ngraph = torch.tensor(vgraph.repeat(N,1).view(N,N,-1),requires_grad=False)
+          # Returns 1 vectors per each entity (was assembled from 4 indv vectors processed sep) in a sample (aggregated data from neighbours)
           vgraph = self.gat[j](vgraph.unsqueeze(1),ngraph,mask)
           if self.args.model == 'gat':
             vgraph = vgraph.squeeze(1)
             vgraph = self.gatact(vgraph)
       graphs.append(vgraph)
+
+      # Global node atteneded to all neighbour relations and entitiesi
       glob.append(vgraph[entlens[i]])
+
+    # New lens that includes # nodes + rels
     elens = [x.size(0) for x in graphs]
     gents = [self.pad(x,max(elens)) for x in graphs]
+
+    # PAD graphs again!
     gents = torch.stack(gents,0)
     elens = torch.LongTensor(elens)
     emask = torch.arange(0,gents.size(1)).unsqueeze(0).repeat(gents.size(0),1).long()
     # emask and vents should be in the same device. 
     emask = (emask <= elens.unsqueeze(1)).to(self.get_device())
     glob = torch.stack(glob,0)
+    # Gents all graphs representation padded to the max length
+    # size N X max_entity_sample_length X 500
+
+    # Append last entity vector (avoid relations and global node)
     return None,glob,(gents,emask)

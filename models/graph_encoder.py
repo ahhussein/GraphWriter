@@ -13,7 +13,10 @@ def gelu(x):
 class Block(nn.Module):
   def __init__(self,args):
     super().__init__()
+    # 4 hEADS
     self.attn = MultiHeadAttention(args.hsz,args.hsz,args.hsz,h=4,dropout_p=args.drop)
+
+    # feed forward with 2 layers. one that scale to 4x and one that downscale to 1/4 original size
     self.l1 = nn.Linear(args.hsz,args.hsz*4)
     self.l2 = nn.Linear(args.hsz*4,args.hsz)
     self.ln_1 = nn.LayerNorm(args.hsz)
@@ -35,7 +38,7 @@ class graph_encode(nn.Module):
     nn.init.xavier_normal_(self.renc.weight)
     #self.gat = StackedSelfAttentionEncoder(args.hsz,args.hsz,args.hsz,args.hsz,args.prop,args.heads,use_positional_encoding=False)
 
-    self.gat = nn.ModuleList([MultiHeadAttention(args.hsz,args.hsz,args.hsz,h=4,dropout_p=args.drop) for _ in range(args.prop)])
+    #self.gat = nn.ModuleList([MultiHeadAttention(args.hsz,args.hsz,args.hsz,h=4,dropout_p=args.drop) for _ in range(args.prop)])
     self.gat = nn.ModuleList([Block(args) for _ in range(args.prop)])
     self.prop = args.prop
 

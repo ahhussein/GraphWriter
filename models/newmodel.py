@@ -32,16 +32,24 @@ class model(nn.Module):
 
   def forward(self,b):
     if self.args.title:
+      # batch of sentences. passed as tensor of plain wordss
+
       tencs,_ = self.tenc(b.src)
+
+      # b.src[1] sentences length, mask is used to discard padding
       tmask = self.maskFromList(tencs.size(),b.src[1]).unsqueeze(1)
     outp,_ = b.out
     ents = b.ent
     entlens = ents[2]
+
+    # Encode entities into matrices using biLSTM. each entity is represnted by hidden size of 500
     ents = self.le(ents)
     if self.graph:
+      # rel[0] is adj, rel[1] is rel array
       gents,glob,grels = self.ge(b.rel[0],b.rel[1],(ents,entlens))
       hx = glob
       keys,mask = grels
+      # TODO what does this line do
       mask = mask==0
     else:
       mask = self.maskFromList(ents.size(),entlens)
@@ -58,16 +66,26 @@ class model(nn.Module):
     else:
       planlogits = None
 
-      
+
+    # Glob Removes gradient backward path
+    # B x hz
     cx = torch.tensor(hx)
     #print(hx.size(),mask.size(),keys.size())
     a = torch.zeros_like(hx) #self.attn(hx.unsqueeze(1),keys,mask=mask).squeeze(1)
     if self.args.title:
+      # Attend last entity of each sample graph to each word in sentence in the title
+      # B x hz
+      # tencs size B x max_seq_length (rest padded and thats why we use mask) x hz
       a2 = self.attn2(hx.unsqueeze(1),tencs,mask=tmask).squeeze(1)
+
+      #B * 2hz
       a = torch.cat((a,a2),1)
     #e = outp.transpose(0,1)
+
+    # max max length of words * (B) * hz?
     e = self.emb(outp).transpose(0,1)
     outputs = []
+    # each 1,2,3 word in a batch
     for i, k in enumerate(e):
       #k = self.emb(k)
       if self.args.plan:
@@ -78,6 +96,9 @@ class model(nn.Module):
               mask[j] = 0
               m = b.sorder[j][planplace[j]]
               mask[j][0][b.sorder[j][planplace[j]]]=1
+
+      # check dimensions
+      # Mixing word in position x with output of attention of global node and title
       prev = torch.cat((a,k),1)
       hx,cx = self.lstm(prev,(hx,cx))
       a = self.attn(hx.unsqueeze(1),keys,mask=mask).squeeze(1)
@@ -88,19 +109,27 @@ class model(nn.Module):
       out = torch.cat((hx,a),1)
       outputs.append(out)
     l = torch.stack(outputs,1)
+    # switch to either copy or generate
     s = torch.sigmoid(self.switch(l))
     o = self.out(l)
     o = torch.softmax(o,2)
+
+    # Generate distribution
     o = s*o
+
     #compute copy attn
     _, z = self.mattn(l,(ents,entlens))
     #z = torch.softmax(z,2)
+    # Copy distribution
     z = (1-s)*z
+    # vocab scores + entity scores for each sample
     o = torch.cat((o,z),2)
     o = o+(1e-6*torch.ones_like(o))
     return o.log(),z,planlogits
 
   def maskFromList(self,size,l):
+    # size[1] = max sample (e.g. sentence) length
+    # size[0] = batch size
     mask = torch.arange(0,size[1]).unsqueeze(0).repeat(size[0],1).long().cuda()
     mask = (mask <= l.unsqueeze(1))
     mask = mask==0

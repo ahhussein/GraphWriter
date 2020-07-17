@@ -28,6 +28,8 @@ class lseq_encode(nn.Module):
     return h
 
   def forward(self,inp):
+    # Batch of titles at a time. Each batch is a list of tuples
+    # tuple1 contains the sentences encoded and the tuple2 contains the lengths
     l, ilens = inp
     learned_emb = self.lemb(l)
     learned_emb = self.input_drop(learned_emb)
@@ -36,10 +38,20 @@ class lseq_encode(nn.Module):
       e = torch.cat((elmo_emb['elmo_representations'][0],learned_emb),2)
     else:
       e = learned_emb
+
+    # sent_len = sorted length, idxs= original idxs before sorting
     sent_lens, idxs = ilens.sort(descending=True)
+    # rearrange r to match idxs, longest seq first
     e = e.index_select(0,idxs)
+
+    # padding was necessary to train batch embeddings, now it's necessary to pack to avoid high computation
     e = pack_padded_sequence(e,sent_lens,batch_first=True)
+
+    # output is packed, e is the output of (seq_len, batch, hidden_size)
+    # h is the otput of the last time seq (hidden_layer, batch)
+    # c is the cell state
     e, (h,c) = self.encoder(e)
+    # 0 to discard lengths
     e = pad_packed_sequence(e,batch_first=True)[0]
     e = torch.zeros_like(e).scatter(0,idxs.unsqueeze(1).unsqueeze(1).expand(-1,e.size(1),e.size(2)),e)
     h = h.transpose(0,1)
@@ -49,6 +61,7 @@ class lseq_encode(nn.Module):
 class list_encode(nn.Module):
   def __init__(self,args):
     super().__init__()
+    # sequence encoder
     self.seqenc = lseq_encode(args,toks=args.vtoks)#,vocab=args.ent_vocab)
     #self.seqenc = lseq_encode(args,vocab=args.ent_vocab)
 
@@ -58,11 +71,25 @@ class list_encode(nn.Module):
   def forward(self,batch,pad=True):
     batch,phlens,batch_lens = batch
     batch_lens = tuple(batch_lens.tolist())
+
+    # Batch is equal to 32 * number of sentences or sum of all entities in the 32 batch * maxlen sentence
+
     _,enc = self.seqenc((batch,phlens))
+    # discard first layer output
     enc = enc[:,2:]
+
+    # cat two directions
+    # get (entity * hidden_size)
     enc = torch.cat([enc[:,i] for i in range(enc.size(1))],1)
+
+    # Max # entity per sample.
     m = max(batch_lens)
+
+    # TODO good start from here
+    # list of all entities matrics padded to the max entity length
     encs = [self.pad(x,m) for x in enc.split(batch_lens)]
+
+    # Stack them to end up with 32 * maxlen_of_entities * hidden size
     out = torch.stack(encs,0)
     return out
 

@@ -209,9 +209,9 @@ class MultiHeadAttention(nn.Module):
     def __init__(self,
                  query_dim,
                  key_dim,
-                 num_units,
+                 num_units, # of units for all heads will be divded by heads
                  dropout_p=0.5,
-                 h=8,
+                 h=8, # 8 heads
                  is_masked=False):
         super(MultiHeadAttention, self).__init__()
 
@@ -250,6 +250,8 @@ class MultiHeadAttention(nn.Module):
 
         # split each Q, K and V into h different values from dim 2
         # and then merge them back together in dim 0
+
+        # Multihead
         chunk_size = int(self._num_units / self._h)
         Q = torch.cat(Q.split(split_size=chunk_size, dim=2), dim=0)
         K = torch.cat(K.split(split_size=chunk_size, dim=2), dim=0)
@@ -260,11 +262,18 @@ class MultiHeadAttention(nn.Module):
         # normalize with sqrt(dk)
 
         # attention and _key_dim should be in the same device.
+        # N * _h X 1 X N
         attention = attention / torch.sqrt(self._key_dim).to(self.get_device())
 
         if mask is not None:
+          # original mask N * 1 * N
+          # After N*_H * 1 * N
           mask = mask.repeat(self._h,1,1)
+
+          # Discard 0 values, Note: mask is flipped
           attention.masked_fill_(mask,-float('inf'))
+
+        # -inf for nodes not neighbors
         attention = F.softmax(attention, dim=-1)
         # apply dropout
         attention = F.dropout(attention, self._dropout_p)
@@ -276,6 +285,8 @@ class MultiHeadAttention(nn.Module):
             attention.split(split_size=restore_chunk_size, dim=0), dim=2)
         # residual connection
         attention += query
+
+        # TODO: why commented batch and ln normailzation
         # apply batch normalization
         #attention = self.bn(attention.transpose(1, 2)).transpose(1, 2)
         # apply layer normalization

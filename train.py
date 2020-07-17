@@ -31,7 +31,7 @@ def train(m,o,ds,args):
       b = ds.fixBatch(b)
       p,z,planlogits = m(b)
       p = p[:,:-1,:].contiguous()
-
+      # TODO: Why skip values for last word?
       tgt = b.tgt[:,1:].contiguous().view(-1).to(args.device)
       l = F.nll_loss(p.contiguous().view(-1,p.size(2)),tgt,ignore_index=1)
       #copy coverage (each elt at least once)
@@ -83,6 +83,7 @@ def main(args):
     os.mkdir(args.save)
   ds = dataset(args)
   args = dynArgs(args,ds)
+
   m = model(args)
   print(args.device)
   m = m.to(args.device)

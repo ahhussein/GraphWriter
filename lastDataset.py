@@ -27,6 +27,7 @@ class dataset:
     with open(path) as f:
       for l in f:
         ents +=  " "+l.split("\t")[1]
+
     itos = sorted(list(set(ents.split(" "))))
     itos[0] == "<unk>"; itos[1] == "<pad>"
     stoi = {x:i for i,x in enumerate(itos)}
@@ -38,19 +39,30 @@ class dataset:
     return self.pad_list(ex,1)
   
   def mkGraphs(self,r,ent):
+    # ent represents how many entities
     #convert triples to entlist with adj and rel matrices
     pieces = r.strip().split(';')
+    # Array of relations [[1,2,3], [2,3,4]]
     x = [[int(y) for y in z.strip().split()] for z in pieces]
+    # ROOT / Global NODE
     rel = [2]
-    #global root node
+    #global root node + 2 nodes per each relation + number oe entities in that paper abstract
     adjsize = ent+1+(2*len(x))
     adj = torch.zeros(adjsize,adjsize)
+
+    # global node
     for i in range(ent):
       adj[i,ent]=1
       adj[ent,i]=1
+
+    # Self connection
     for i in range(adjsize):
       adj[i,i]=1
+
+    # converting relations into nodes
     for y in x:
+
+      # skip special chars, inverse
       rel.extend([y[1]+3,y[1]+3+self.REL.size])
       a = y[0]
       b = y[2]
@@ -71,31 +83,53 @@ class dataset:
 
   def mkVocabs(self,args):
     args.path = args.datadir + args.data
+    # title: e.g. Hierarchical Semantic Classification : Word Sense Disambiguation with World Knowledge
     self.INP = data.Field(sequential=True, batch_first=True,init_token="<start>", eos_token="<eos>",include_lengths=True)
+
+    # Processed Abstract: e.g. we present a <method_6> for <task_1> that supplements <material_4> with <material_5> encoding general '' world knowledge '' . the <method_6> compiles knowledge contained in a dictionary-ontology into additional training data ,
+    # and integrates <material_0> through a novel <method_3> . experiments on a <task_2> provide empirical evidence that this '' <method_3> '' outperforms a state-of-the-art standard '' flat '' one .
     self.OUTP = data.Field(sequential=True, batch_first=True,init_token="<start>", eos_token="<eos>",include_lengths=True)
+
+    # Target text after (final output)
     self.TGT = data.Field(sequential=True, batch_first=True,init_token="<start>", eos_token="<eos>")
+
+    # extracted entity types: e.g. <material> <task> <task> <method> <material> <material> <method>
     self.NERD = data.Field(sequential=True, batch_first=True,eos_token="<eos>")
+
+    # extracted entities (Graph) from abstract: e.g. task-specific and background data ; lexical semantic classification problems ; word sense disambiguation task ; hierarchical learning architecture ; task-specific training data ; background data ; learning architecture
     self.ENT = data.RawField()
+
+    # relation between entities (0 based): e.g. 6 0 1
     self.REL = data.RawField()
+
+    # token order: e.g. 6 1 4 5 8 7 -1 0 3 7 -1 2 7 -1 (not yet clear)
     self.SORDER = data.RawField()
     self.SORDER.is_target = False
     self.REL.is_target = False 
-    self.ENT.is_target = False 
+    self.ENT.is_target = False
+
     self.fields=[("src",self.INP),("ent",self.ENT),("nerd",self.NERD),("rel",self.REL),("out",self.OUTP),("sorder",self.SORDER)]
     train = data.TabularDataset(path=args.path, format='tsv',fields=self.fields)
 
     print('building vocab')
 
-    self.OUTP.build_vocab(train, min_freq=args.outunk)   
+    self.OUTP.build_vocab(train, min_freq=args.outunk)
+    # Exxtend the outpt vocab to contain these tokens (They exist in the original vocab but with numbers)
     generics =['<method>','<material>','<otherscientificterm>','<metric>','<task>']
     self.OUTP.vocab.itos.extend(generics)
     for x in generics:
       self.OUTP.vocab.stoi[x] = self.OUTP.vocab.itos.index(x)
+
+    # same copy goes to target
     self.TGT.vocab = copy(self.OUTP.vocab)
+
+    # Extend target to include all the entity typs with numbers up to 40
     specials = "method material otherscientificterm metric task".split(" ")
+    # The size of the tgt vocab will still be the size without these specials
     for x in specials:
       for y in range(40):
         s = "<"+x+"_"+str(y)+">"
+        # Change indices of those vocab
         self.TGT.vocab.stoi[s] = len(self.TGT.vocab.itos)+y
     self.NERD.build_vocab(train,min_freq=0)
     for x in generics:
@@ -113,6 +147,7 @@ class dataset:
 
     self.ENT.itos,self.ENT.stoi = self.build_ent_vocab(args.path)
 
+
     print('done')
     if not self.args.eval:
       self.mkiters(train)
@@ -121,26 +156,58 @@ class dataset:
     return [x.to(self.args.device) for x in l]
 
   def fixBatch(self,b):
+    # unzip (*)  so that we get ent = (tensor1, tensor2, tensor3) - phlens = (lens1[array], lens2, len3)
+    # tensor1 2d, rows sentences, columns for words
     ent,phlens = zip(*b.ent)
+
+    # Pad all sample in a batch with 1 to match the maximum length of words and to unify dimensions
+    #returns array of tensors and array of lengths
     ent,elens = self.adjToBatch(ent)
+
+    # Ent is all samples padded in one big matrix
     ent = ent.to(self.args.device)
     adj,rel = zip(*b.rel)
+
+    # TODO read later how to preprocess graph
     if self.args.sparse:
       b.rel = [adj,self.listTo(rel)]
     else:
       b.rel = [self.listTo(adj),self.listTo(rel)]
     if self.args.plan:
       b.sordertgt = self.listTo(self.pad_list(b.sordertgt))
+
+    # Phlens indicates how many actual words in entity
+    # (since the entity is padded according to the batch max entity size)
+    # one big array of lengths, each record represents actual number of words per entity
     phlens = torch.cat(phlens,0).to(self.args.device)
+
+    # elens is how many entities in one sample since all samples are cat together as rows
     elens = elens.to(self.args.device)
     b.ent = (ent,phlens,elens)
     return b
 
 
   def adjToBatch(self,adj):
-    lens = [x.size(0) for x in adj]
-    m = max([x.size(1) for x in adj])
+    # word in entity, # entities in sample, samples in batch
+
+    # adjs is tuple of 2d matrices, rows sentences (entity is one field), columns for words
+    lens = [x.size(0) for x in adj] # each record is the # of entities in a document (sample)
+    m = max([x.size(1) for x in adj]) #  max of columns for a word for the whole batch
+
+    # PAdding over batch, before was just padding over sentences in the sample
     data = [self.pad(x.transpose(0,1),m).transpose(0,1) for x in adj]
+
+    # Append all tensors together. That's where length tensor will become handy
+    # [
+    #   # lens[0] = 2 entities in one sample
+    #   [120,12123, 123123, 1,  1],
+    #   [123, 123, 23123, 123123 ,1],
+    #
+    #   # lens[1] = 3 words in second entity
+    #   [120,12123, 123123, 1,  1],
+    #   [120,12123, 123123, 1,  1],
+    #   [120, 12123, 123123, 1, 1],
+    # ]
     data = torch.cat(data,0)
     return data,torch.LongTensor(lens)
 
@@ -169,12 +236,20 @@ class dataset:
       print(len(ds.examples),end='\t')
       for x in ds:
         x.rawent = x.ent.split(" ; ")
+        # seperate one record entries by ; and for each record, a vector is build for each word by splitting with a space [[1,2], [123,123123]]
         x.ent = self.vec_ents(x.ent,self.ENT)
+
+        # small graph for each record. One graph for each paper
         x.rel = self.mkGraphs(x.rel,len(x.ent[1]))
         if args.sparse:
           x.rel = (self.adjToSparse(x.rel[0]),x.rel[1])
+
+        # out = target
         x.tgt = x.out
+
+        # remove the entity number from entity type
         x.out = [y.split("_")[0]+">" if "_" in y else y for y in x.out]
+
         x.sordertgt = torch.LongTensor([int(y)+3 for y in x.sorder.split(" ")])
         x.sorder = [[int(z) for z in y.strip().split(" ")] for y in x.sorder.split("-1")[:-1]]
       ds.fields["tgt"] = self.TGT
@@ -259,7 +334,6 @@ class dataset:
 
   def listToBatch(self,inp):
     data, lens = zip(*inp)
-    print(lens);exit()
     lens = torch.tensor(lens)
     m = torch.max(lens).item()
     data = [self.pad(x.transpose(0,1),m).transpose(0,1) for x in data]
@@ -284,6 +358,7 @@ class dataset:
   def pad_list(self,l,ent=1):  
     lens = [len(x) for x in l]
     m = max(lens)
+    # Concatenates sequence of tensors along a new dimension.
     return torch.stack([self.pad(torch.tensor(x),m,ent) for x in l],0), torch.LongTensor(lens)
 
   def pad(self,tensor, length,ent=1):
