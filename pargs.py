@@ -71,7 +71,7 @@ def pargs():
   parser.add_argument("-save",required=True,help="where to save model")
   parser.add_argument("-outunk",default=5,type=int,help="unk @ for targets")
   parser.add_argument("-entunk",default=5,type=int,help="unk @ for entity vocabulary")
-  parser.add_argument("-datadir",default="data/")
+  parser.add_argument("-datadir",default="graph_data/")
   parser.add_argument("-data",default="preprocessed.train.tsv",help="preprocessed data")
   parser.add_argument("-traindata",default="preprocessed.train.tsv",help="preprocessed train data")
   parser.add_argument("-relvocab",default="relations.vocab",type=str,help='vocabulary of graph relations')

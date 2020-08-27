@@ -108,7 +108,7 @@ class dataset:
     self.REL.is_target = False 
     self.ENT.is_target = False
 
-    self.fields=[("src",self.INP),("ent",self.ENT),("nerd",self.NERD),("rel",self.REL),("out",self.OUTP),("sorder",self.SORDER)]
+    self.fields=[("src",self.INP),("ent",self.ENT),("nerd",self.NERD),("rel",self.REL),("out",self.OUTP)]
     if args.eval:
       train = data.TabularDataset(path=args.datadir+args.traindata, format='tsv',fields=self.fields)
     else:
@@ -140,6 +140,7 @@ class dataset:
 
     self.INP.build_vocab(train, min_freq=args.entunk)   
 
+    # TODO investifate what specia pad and unk does
     self.REL.special = ['<pad>','<unk>','ROOT']
     with open(args.datadir+"/"+args.relvocab) as f:
       rvocab = [x.strip() for x in f.readlines()]
@@ -253,14 +254,17 @@ class dataset:
         # out = target
         x.tgt = x.out
 
+        x.rawtgt = x.out
+
         # remove the entity number from entity type
         x.out = [y.split("_")[0]+">" if "_" in y else y for y in x.out]
 
-        x.sordertgt = torch.LongTensor([int(y)+3 for y in x.sorder.split(" ")])
-        x.sorder = [[int(z) for z in y.strip().split(" ")] for y in x.sorder.split("-1")[:-1]]
+        #x.sordertgt = torch.LongTensor([int(y)+3 for y in x.sorder.split(" ")])
+        #x.sorder = [[int(z) for z in y.strip().split(" ")] for y in x.sorder.split("-1")[:-1]]
       ds.fields["tgt"] = self.TGT
       ds.fields["rawent"] = data.RawField()
-      ds.fields["sordertgt"] = data.RawField()
+      ds.fields["rawtgt"] = data.RawField()
+      #ds.fields["sordertgt"] = data.RawField()
 
 
     self.t1_iter = data.Iterator(t1d,args.t1size,device=args.device,sort_key=lambda x:len(x.out),repeat=False,train=True)
@@ -281,11 +285,11 @@ class dataset:
         x.rel = (self.adjToSparse(x.rel[0]),x.rel[1])
       x.tgt = x.out
       x.out = [y.split("_")[0]+">" if "_" in y else y for y in x.out]
-      x.sordertgt = torch.LongTensor([int(y)+3 for y in x.sorder.split(" ")])
-      x.sorder = [[int(z) for z in y.strip().split(" ")] for y in x.sorder.split("-1")[:-1]]
+      #x.sordertgt = torch.LongTensor([int(y)+3 for y in x.sorder.split(" ")])
+      #x.sorder = [[int(z) for z in y.strip().split(" ")] for y in x.sorder.split("-1")[:-1]]
     ds.fields["tgt"] = self.TGT
     ds.fields["rawent"] = data.RawField()
-    ds.fields["sordertgt"] = data.RawField()
+    #ds.fields["sordertgt"] = data.RawField()
     dat_iter = data.Iterator(ds,1,device=args.device,sort_key=lambda x:len(x.src), train=False, sort=False)
     return dat_iter
 

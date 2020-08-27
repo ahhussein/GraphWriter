@@ -8,6 +8,8 @@ from torch.nn import functional as F
 from lastDataset import dataset
 from pargs import pargs,dynArgs
 from models.newmodel import model
+from torch.utils.tensorboard import SummaryWriter
+
 
 def update_lr(o,args,epoch):
   if epoch%args.lrstep == 0:
@@ -49,9 +51,10 @@ def train(m,o,ds,args):
       o.step()
       o.zero_grad()
       ex += len(b.tgt)
-  loss = loss/ex 
+  loss = loss/ex
   print("AVG TRAIN LOSS: ",loss,end="\t")
   if loss < 100: print(" PPL: ",exp(loss))
+  return loss
 
 def evaluate(m,ds,args):
   print("Evaluating",end="\t")
@@ -104,6 +107,9 @@ def main(args):
     with open(args.save+"/commandLineArgs.txt",'w') as f:
       f.write("\n".join(sys.argv[1:]))
     starte=0
+
+  writer = SummaryWriter(log_dir=args.save)
+
   o = torch.optim.SGD(m.parameters(),lr=args.lr, momentum=0.9)
 
   # early stopping based on Val Loss
@@ -111,8 +117,12 @@ def main(args):
   
   for e in range(starte,args.epochs):
     print("epoch ",e,"lr",o.param_groups[0]['lr'])
-    train(m,o,ds,args)
+    loss = train(m,o,ds,args)
+
     vloss = evaluate(m,ds,args)
+    writer.add_scalar('train/loss', loss , e)
+    writer.add_scalar('val/loss', vloss, e)
+
     if args.lrwarm:
       update_lr(o,args,e)
     print("Saving model")
