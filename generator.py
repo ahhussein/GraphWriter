@@ -25,7 +25,9 @@ def test(args,ds,m,epoch='cmdline'):
   k = 0
   data = ds.mktestset(args)
   ofn = "outputs/"+model+".inputs.beam_predictions."+epoch
+  ofngt = "outputs/"+model+".inputs.gt."+epoch
   pf = open(ofn,'w')
+  pfgt = open(ofngt,'w')
   preds = []
   golds = []
   for b in data:
@@ -49,6 +51,7 @@ def test(args,ds,m,epoch='cmdline'):
     golds.append(gold.lower())
     #tf.write(ent+'\n')
     pf.write(gen.lower()+'\n')
+    pfgt.write(gold.lower()+'\n')
   m.train()
   return preds,golds
 

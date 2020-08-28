@@ -1,6 +1,8 @@
 import sys
 from random import shuffle
 import os
+
+from torch.utils.tensorboard import SummaryWriter
 from math import exp
 import torch
 from torch import nn
@@ -11,6 +13,7 @@ from models.newmodel import model
 from torch.utils.tensorboard import SummaryWriter
 
 
+offset = 0
 def update_lr(o,args,epoch):
   if epoch%args.lrstep == 0:
     o.param_groups[0]['lr'] = args.lrhigh
@@ -18,7 +21,8 @@ def update_lr(o,args,epoch):
     o.param_groups[0]['lr'] -= args.lrchange
   
   
-def train(m,o,ds,args):
+def train(m,o,ds,args, writer):
+  global offset
   print("Training",end="\t")
   loss = 0
   ex = 0
@@ -51,9 +55,13 @@ def train(m,o,ds,args):
       o.step()
       o.zero_grad()
       ex += len(b.tgt)
-  loss = loss/ex
+      writer.add_scalar('t/total/batch', l.item(), offset+count)
+
+  loss = loss/ex 
+
   print("AVG TRAIN LOSS: ",loss,end="\t")
   if loss < 100: print(" PPL: ",exp(loss))
+  offset +=  count
   return loss
 
 def evaluate(m,ds,args):
@@ -114,13 +122,13 @@ def main(args):
 
   # early stopping based on Val Loss
   lastloss = 1000000
-  
+  writer = SummaryWriter(log_dir='logs')
+
   for e in range(starte,args.epochs):
     print("epoch ",e,"lr",o.param_groups[0]['lr'])
-    loss = train(m,o,ds,args)
-
+    loss = train(m,o,ds,args, writer)
     vloss = evaluate(m,ds,args)
-    writer.add_scalar('train/loss', loss , e)
+    writer.add_scalar('train/loss', loss, e)
     writer.add_scalar('val/loss', vloss, e)
 
     if args.lrwarm:
